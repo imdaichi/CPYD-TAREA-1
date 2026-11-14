@@ -1,0 +1,21 @@
+# Credenciales (nunca al repo)
+.env
+*.token
+
+# Compilación
+/build/
+/programa
+*.o
+
+# Datos y salidas grandes
+data/*.csv
+!data/ejemplo_ventas.csv
+resumen_ventas_usd.csv
+errores.csv
+results/*.log
+
+# Editores / sistema
+.vscode/
+.idea/
+*.swp
+.DS_Store
