@@ -8,7 +8,8 @@
 *.o
 
 # Datos y salidas grandes
-data/*.csv
+
+.csv
 resumen_ventas_usd.csv
 errores.csv
 results/*.log
