@@ -12,8 +12,15 @@ if ! "$MOTOR" image exists "$IMAGEN" 2>/dev/null && ! "$MOTOR" image inspect "$I
   "$MOTOR" build -t "$IMAGEN" -f "$RAIZ/Containerfile" "$RAIZ"
 fi
 
+# Podman y Docker usan opciones distintas para que los archivos creados queden a nombre del usuario.
+if [[ "$(basename "$MOTOR")" == podman ]]; then
+  USER_ARGS=(--userns=keep-id)
+else
+  USER_ARGS=(--user "$(id -u):$(id -g)")
+fi
+
 ENV_ARGS=()
 [[ -f "$RAIZ/.env" ]] && ENV_ARGS=(--env-file "$RAIZ/.env")
 
 TTY=(); [[ -t 0 && -t 1 ]] && TTY=(-it)
-exec "$MOTOR" run --rm "${TTY[@]}" --userns=keep-id -v "$RAIZ":/work:Z -w /work "${ENV_ARGS[@]}" "$IMAGEN" "${@:-bash}"
+exec "$MOTOR" run --rm "${TTY[@]}" "${USER_ARGS[@]}" -v "$RAIZ":/work:Z -w /work "${ENV_ARGS[@]}" "$IMAGEN" "${@:-bash}"
