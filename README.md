@@ -16,15 +16,16 @@ convierte cada monto a USD con la tasa diaria de la API del curso y escribe el t
 
 ## Requisitos
 
-- GCC con soporte OpenMP (el enunciado pide que compile en **GCC 14.2.0**) y `make`
-- libcurl con cabeceras de desarrollo
+El enunciado exige que compile en **GCC 14.2.0**. Para que todo el grupo use exactamente esa versión, sin importar la
+que traiga su sistema, se compila dentro de un contenedor basado en la imagen oficial `gcc:14.2.0`
+([`Containerfile`](Containerfile)), que ya incluye g++, OpenMP y libcurl.
+
+- Podman (viene en Fedora) o Docker
 - [nlohmann/json](https://github.com/nlohmann/json) 3.11.3, incluido en `third_party/json.hpp`
 
 ```bash
-# Fedora
-sudo dnf install gcc-c++ make libcurl-devel
-# Debian / Ubuntu
-sudo apt install g++ make libcurl4-openssl-dev
+scripts/gcc14.sh gcc --version     # la primera vez construye la imagen; debe decir 14.2.0
+scripts/gcc14.sh                   # abre una terminal dentro del contenedor
 ```
 
 ## Credenciales
@@ -34,15 +35,16 @@ El token JWT **no** se guarda en el repositorio: el programa hace login al inici
 ```bash
 cp .env.example .env      # .env está en .gitignore
 nano .env                 # completar CPYD_EMAIL y CPYD_APIKEY (RUT con puntos y guion)
-set -a; source .env; set +a
 ```
 
 ## Compilación y ejecución
 
 ```bash
-make
-./programa --input data/ventas.csv --output resumen_ventas_usd.csv --threads 8
+scripts/gcc14.sh make
+scripts/gcc14.sh ./programa --input data/ventas.csv --output resumen_ventas_usd.csv --threads 8
 ```
+
+`scripts/gcc14.sh` carga automáticamente el `.env` dentro del contenedor.
 
 | Opción | Descripción | Por defecto |
 |---|---|---|
@@ -50,6 +52,35 @@ make
 | `--output` | CSV de salida `pais,id_cliente,total_usd` | `resumen_ventas_usd.csv` |
 | `--errors` | filas rechazadas con el motivo | `errores.csv` |
 | `--threads` | número de hilos OpenMP | lo que defina OpenMP |
+
+## Flujo de trabajo (Gitflow)
+
+| Rama | Para qué | Sale de | Se une a |
+|---|---|---|---|
+| `main` | Solo versiones entregables, cada una con su tag (`v1.0.0`) | — | — |
+| `develop` | Integración del trabajo del grupo (rama por defecto) | `main` | — |
+| `feature/<tema>` | Una funcionalidad: `feature/lectura-csv`, `feature/cliente-api` | `develop` | `develop` |
+| `release/<versión>` | Preparar una entrega: README, resultados, ajustes finales | `develop` | `main` y `develop` |
+| `hotfix/<versión>` | Corrección urgente sobre lo ya entregado | `main` | `main` y `develop` |
+
+```bash
+# empezar una funcionalidad
+git switch develop && git pull
+git switch -c feature/lectura-csv
+# ... commits ...
+git push -u origin feature/lectura-csv     # y abrir un pull request hacia develop
+
+# preparar la entrega
+git switch -c release/1.0.0 develop
+# ... últimos ajustes ...
+git switch main && git merge --no-ff release/1.0.0 && git tag -a v1.0.0 -m "Entrega Tarea 1"
+git switch develop && git merge --no-ff release/1.0.0
+git push origin main develop --tags
+```
+
+Mensajes de commit: `tipo: descripción` en español, en imperativo (`feat: lee y valida el archivo de ventas`,
+`fix: corrige fechas sin tasa`, `docs: agrega análisis de speedup`, `perf: …`, `test: …`, `chore: …`).
+Cada integrante hace commits **desde su propia cuenta** (requisito de participación verificable).
 
 ## Formato de entrada
 
