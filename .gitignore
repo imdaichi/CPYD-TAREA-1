@@ -9,7 +9,6 @@
 
 # Datos y salidas grandes
 data/*.csv
-!data/ejemplo_ventas.csv
 resumen_ventas_usd.csv
 errores.csv
 results/*.log

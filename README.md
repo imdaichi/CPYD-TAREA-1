@@ -53,20 +53,13 @@ make
 
 ## Formato de entrada
 
-_Por confirmar con el archivo oficial._ Formato asumido:
-
-```
-pais,id_cliente,id_boleta,fecha_hora,monto
-0,3eabedcb-baa8-4dd4-88bd-64072bcfbe01,d7c524a5-5304-417f-af42-e12f3838b326,2023-01-23 08:20:21,15990.00
-```
+_Por confirmar con el archivo oficial._ Campos por línea, en orden (según el enunciado):
 
 - `pais`: 0 = Chile, 1 = Colombia, 2 = Ecuador
-- `id_cliente`, `id_boleta`: UUID
-- `fecha_hora`: `YYYY-MM-DD HH:MM:SS`
-- `monto`: decimal con punto, en moneda local
-
-Para probar sin el archivo oficial: `python3 scripts/generar_ventas.py --rows 100000 --out data/ventas_prueba.csv`
-(incluye filas inválidas a propósito).
+- `id_cliente`: UUID
+- `id_boleta`: UUID, único en todo el archivo
+- fecha y hora local de la venta
+- `monto`: decimal, en moneda local
 
 ## Estrategia de paralelización
 
