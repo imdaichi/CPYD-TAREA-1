@@ -1,6 +1,5 @@
 #include "utem.h"
 #include "error.h"
-#include <sstream>
 
 namespace utem {
 std::string eliminarEspacios(const std::string& texto) {
@@ -41,12 +40,17 @@ std::string mapearCodigoPais(int codigo_pais) {
 
 std::vector<std::string> dividirLineaCsv(const std::string& linea, char separador) {
     std::vector<std::string> campos;
-    std::stringstream ss(linea);
-    std::string item;
-    while (std::getline(ss, item, separador)) {
-        campos.push_back(eliminarComillas(eliminarEspacios(item)));
+    campos.reserve(5);
+    std::size_t inicio = 0;
+    while (inicio <= linea.size()) {
+        const std::size_t pos = linea.find(separador, inicio);
+        if (pos == std::string::npos) {
+            campos.push_back(eliminarComillas(eliminarEspacios(linea.substr(inicio))));
+            break;
+        }
+        campos.push_back(eliminarComillas(eliminarEspacios(linea.substr(inicio, pos - inicio))));
+        inicio = pos + 1;
     }
     return campos;
 }
 } // namespace utem
-
