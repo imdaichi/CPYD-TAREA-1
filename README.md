@@ -14,6 +14,25 @@ convierte cada monto a USD con la tasa diaria de la API del curso y escribe el t
 | Benjamín Quilodrán |"bquilodran" | |
 | Cristobal Huentecura |"Wente" | |
 
+## Estructura del repositorio
+
+```
+CPYD-TAREA-1/
+├── src/              código fuente C++ (main, lectura y validación, cliente HTTP, caché de tasas)
+├── third_party/      nlohmann/json (json.hpp)
+├── scripts/          gcc14.sh (compila y ejecuta en el contenedor con GCC 14.2.0)
+├── tests/            archivos CSV chicos de prueba, por ejemplo con errores a propósito
+├── data/             ventas.csv del profesor (~14 GB, no se sube al repositorio)
+├── results/          tiempos del benchmark y gráficos de speedup y eficiencia
+├── docs/             enunciado y documentación de apoyo
+├── Makefile          compila src/ en build/ y genera ./programa
+├── Containerfile     imagen de compilación gcc:14.2.0 + libcurl
+├── .env.example      plantilla de credenciales (copiar a .env, que no se sube)
+└── .clang-format     estilo de código
+```
+
+`build/`, `programa`, `data/`, `.env` y las salidas (`resumen_ventas_usd.csv`, `errores.csv`) están en `.gitignore`.
+
 ## Requisitos
 
 El enunciado exige que compile en **GCC 14.2.0**. Para que todo el grupo use exactamente esa versión, sin importar la
