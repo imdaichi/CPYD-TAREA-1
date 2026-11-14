@@ -69,6 +69,7 @@ ResultadoConsultaDiaria consultarDiasEnParalelo(
     std::size_t consultas = 0;
     std::size_t sin_dato = 0;
     std::size_t fallidas = 0;
+    std::size_t completadas = 0;
 
     #pragma omp parallel num_threads(hilos) reduction(+ : consultas, sin_dato, fallidas)
     {
@@ -120,6 +121,17 @@ ResultadoConsultaDiaria consultarDiasEnParalelo(
             }
             if (!resuelta) {
                 ++fallidas;
+            }
+
+            std::size_t avance = 0;
+            #pragma omp atomic capture
+            avance = ++completadas;
+
+            if (avance % 500 == 0 || avance == total) {
+                #pragma omp critical(log_progreso)
+                {
+                    std::cerr << "[API] Descargando tasas diarias en paralelo: " << avance << " / " << total << "\n";
+                }
             }
         }
     }
@@ -308,7 +320,7 @@ void CacheTasas::descargar_tasas_por_rango(
                                 }
                             }
                         }
-                    } else if (e.codigo_http() == 404) {
+                    } else if (e.codigo_http() == 404 || e.codigo_http() == 500) {
                         break;
                     }
                 } catch (const std::exception& e) {

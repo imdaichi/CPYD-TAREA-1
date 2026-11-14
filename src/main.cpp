@@ -6,6 +6,7 @@
 #include "tasa_cambio.h"
 
 #include <curl/curl.h>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <omp.h>
@@ -73,11 +74,18 @@ int main(int argc, char** argv) {
             const std::vector<int> hilos_prueba = { 1, 2, 4, 8 };
             double tiempo_base_1_hilo = 0.0;
 
+            std::ofstream csv_bench("results/benchmark_tiempos.csv", std::ios::out | std::ios::trunc);
+            if (csv_bench.is_open()) {
+                csv_bench << "hilos,tiempo_lectura_conversion_s,tiempo_escritura_s,tiempo_total_s,speedup,eficiencia_pct\n";
+                csv_bench << std::fixed << std::setprecision(4);
+            }
+
             std::cout << std::fixed << std::setprecision(4);
             std::cout << "=== Benchmark OpenMP (1, 2, 4 y 8 hilos) ===\n"
                       << "Tiempo autenticacion + consultas a la API: " << t_api << " s\n\n"
-                      << "Hilos | T. Procesamiento (s) | T. Total (s) | Speedup S(p) | Eficiencia E(p)\n"
-                      << "------+----------------------+--------------+--------------+----------------\n";
+                      << "Hilos | T. Lectura+Conv (s) | T. Escritura (s) | T. Total (s) | Speedup S(p) | Eficiencia E(p)\n"
+                      << "------+---------------------+------------------+--------------+--------------+----------------\n"
+                      << std::flush;
 
             for (int p : hilos_prueba) {
                 omp_set_num_threads(p);
@@ -99,10 +107,20 @@ int main(int argc, char** argv) {
                 const double eficiencia = speedup / static_cast<double>(p);
 
                 std::cout << std::setw(5) << p << " | "
-                          << std::setw(20) << t_proc << " | "
+                          << std::setw(19) << t_proc << " | "
+                          << std::setw(16) << t_esc << " | "
                           << std::setw(12) << t_corrida << " | "
                           << std::setw(12) << speedup << " | "
-                          << std::setw(14) << (eficiencia * 100.0) << "%\n";
+                          << std::setw(14) << (eficiencia * 100.0) << "%\n"
+                          << std::flush;
+
+                if (csv_bench.is_open()) {
+                    csv_bench << p << "," << t_proc << "," << t_esc << ","
+                              << t_corrida << "," << speedup << ","
+                              << std::setprecision(2) << (eficiencia * 100.0)
+                              << std::setprecision(4) << "\n"
+                              << std::flush;
+                }
             }
 
             curl_global_cleanup();
