@@ -5,11 +5,13 @@
 #include "utem.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <iostream>
 #include <omp.h>
 #include <stdexcept>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -28,7 +30,7 @@ int diasEnMes(int anio, int mes) noexcept {
 std::vector<std::string> generarFechasPeriodo2023A2025() {
     std::vector<std::string> fechas;
     fechas.reserve(CacheTasas::DIAS_PERIODO_2023_2025);
-    char buffer[16];
+    char buffer[32]; // holgura para que GCC no advierta truncamiento en snprintf
     for (int anio = 2023; anio <= 2025; ++anio) {
         for (int mes = 1; mes <= 12; ++mes) {
             const int max_dia = diasEnMes(anio, mes);
@@ -39,6 +41,107 @@ std::vector<std::string> generarFechasPeriodo2023A2025() {
         }
     }
     return fechas;
+}
+
+struct ResultadoConsultaDiaria {
+    std::size_t consultas{ 0 }; // peticiones HTTP realizadas (incluye reintentos)
+    std::size_t sin_dato{ 0 };  // fechas con HTTP 404: sin cotizacion (fin de semana o feriado)
+    std::size_t fallidas{ 0 };  // fechas que siguieron fallando tras todos los reintentos
+};
+
+// Consulta GET /exchanges/{pais}/{fecha} para cada par (pais, fecha) en paralelo.
+// Es trabajo de E/S (espera de red), por eso se usan mas hilos que nucleos y schedule(dynamic).
+// Cada iteracion escribe solo su propia posicion de 'resultados' (sin condiciones de carrera);
+// el token compartido se lee y se renueva dentro de critical(acceso_token).
+ResultadoConsultaDiaria consultarDiasEnParalelo(
+    const std::vector<int>& paises,
+    const std::vector<std::string>& calendario,
+    const std::string& url_base,
+    const std::string& email,
+    const std::string& api_key,
+    std::string& token_jwt,
+    std::array<std::map<std::string, double>, CacheTasas::TOTAL_PAISES>& tasas_recibidas,
+    int hilos) {
+
+    const std::size_t n_dias = calendario.size();
+    const std::size_t total = paises.size() * n_dias;
+    std::vector<double> resultados(total, -1.0);
+    std::size_t consultas = 0;
+    std::size_t sin_dato = 0;
+    std::size_t fallidas = 0;
+    std::size_t completadas = 0;
+
+    #pragma omp parallel num_threads(hilos) reduction(+ : consultas, sin_dato, fallidas)
+    {
+        ClienteHttp cliente_hilo;
+
+        #pragma omp for schedule(dynamic, 4)
+        for (std::size_t k = 0; k < total; ++k) {
+            const int pais = paises[k / n_dias];
+            const std::string& fecha = calendario[k % n_dias];
+            const std::string url = url_base + "/exchanges/" + utem::mapearCodigoPais(pais) + "/" + fecha;
+
+            bool resuelta = false;
+            for (int intento = 0; intento < CacheTasas::MAX_INTENTOS_CONSULTA_DIARIA && !resuelta; ++intento) {
+                if (intento > 0) {
+                    // Espera creciente entre reintentos: 0,5 s, 1 s, 2 s...
+                    std::this_thread::sleep_for(std::chrono::milliseconds(250L << intento));
+                }
+
+                std::string token_actual;
+                #pragma omp critical(acceso_token)
+                {
+                    token_actual = token_jwt;
+                }
+
+                try {
+                    ++consultas;
+                    const nlohmann::json j = nlohmann::json::parse(cliente_hilo.get(url, token_actual));
+                    resultados[k] = crear_tasa_desde_json(j).obtener_tasa();
+                    resuelta = true;
+                } catch (const ErrorHttp& e) {
+                    if (e.codigo_http() == 404) {
+                        ++sin_dato; // sin cotizacion ese dia: se resuelve despues con la politica de respaldo
+                        resuelta = true;
+                    } else if (e.codigo_http() == 403 || e.codigo_http() == 401) {
+                        #pragma omp critical(acceso_token)
+                        {
+                            if (token_jwt == token_actual) {
+                                try {
+                                    token_jwt = cliente_hilo.autenticar(url_base, email, api_key);
+                                } catch (const std::exception&) {
+                                    // se reintenta en la siguiente vuelta
+                                }
+                            }
+                        }
+                    }
+                } catch (const std::exception&) {
+                    // JSON invalido o campo faltante: se reintenta
+                }
+            }
+            if (!resuelta) {
+                ++fallidas;
+            }
+
+            std::size_t avance = 0;
+            #pragma omp atomic capture
+            avance = ++completadas;
+
+            if (avance % 500 == 0 || avance == total) {
+                #pragma omp critical(log_progreso)
+                {
+                    std::cerr << "[API] Descargando tasas diarias en paralelo: " << avance << " / " << total << "\n";
+                }
+            }
+        }
+    }
+
+    for (std::size_t k = 0; k < total; ++k) {
+        if (resultados[k] > 0.0) {
+            tasas_recibidas[static_cast<std::size_t>(paises[k / n_dias])][calendario[k % n_dias]] = resultados[k];
+        }
+    }
+    return { consultas, sin_dato, fallidas };
 }
 } // namespace
 
@@ -217,7 +320,7 @@ void CacheTasas::descargar_tasas_por_rango(
                                 }
                             }
                         }
-                    } else if (e.codigo_http() == 404) {
+                    } else if (e.codigo_http() == 404 || e.codigo_http() == 500) {
                         break;
                     }
                 } catch (const std::exception& e) {
@@ -232,17 +335,45 @@ void CacheTasas::descargar_tasas_por_rango(
         }
     }
 
-    for (std::size_t p = 0; p < TOTAL_PAISES; ++p) {
+    const std::vector<std::string> calendario = generarFechasPeriodo2023A2025();
+
+    // Respaldo: si la consulta por rango falla para un pais (por ejemplo, HTTP 500 del servidor),
+    // se consultan sus dias uno por uno con GET /exchanges/{pais}/{fecha}, en paralelo.
+    std::vector<int> paises_respaldo;
+    for (int p = 0; p < static_cast<int>(TOTAL_PAISES); ++p) {
         if (!errores_pais[p].empty()) {
-            throw Error(errores_pais[p]);
+            std::cerr << "[AVISO] " << errores_pais[p] << ". Se consultara dia por dia.\n";
+            paises_respaldo.push_back(p);
+        }
+    }
+
+    consultas_diarias_ = 0;
+    dias_sin_dato_ = 0;
+    consultas_diarias_fallidas_ = 0;
+    if (!paises_respaldo.empty()) {
+        const ResultadoConsultaDiaria r = consultarDiasEnParalelo(
+            paises_respaldo, calendario, url_base, email, api_key, token_jwt, tasas_recibidas,
+            std::max(num_hilos, HILOS_CONSULTA_DIARIA));
+        consultas_diarias_ = r.consultas;
+        dias_sin_dato_ = r.sin_dato;
+        consultas_diarias_fallidas_ = r.fallidas;
+        contador_peticiones += r.consultas;
+
+        if (r.fallidas > 0) {
+            std::cerr << "[AVISO] " << r.fallidas << " fechas no se pudieron consultar tras "
+                      << MAX_INTENTOS_CONSULTA_DIARIA << " intentos; se tratan como fechas sin tasa.\n";
+        }
+        for (const int p : paises_respaldo) {
+            if (tasas_recibidas[static_cast<std::size_t>(p)].empty()) {
+                throw Error("No se obtuvo ninguna tasa para '" + utem::mapearCodigoPais(p)
+                    + "' ni por rango ni dia por dia: " + errores_pais[static_cast<std::size_t>(p)]);
+            }
         }
     }
 
     peticiones_http_ = contador_peticiones;
     tasas_.clear();
     fechas_con_respaldo_ = 0;
-
-    const std::vector<std::string> calendario = generarFechasPeriodo2023A2025();
 
     // Poblar cache y aplicar politica para fechas sin tasa disponible (fines de semana / feriados):
     // Se usa la ultima tasa disponible anterior del mismo pais (o la primera posterior si es al inicio del periodo).
@@ -303,4 +434,16 @@ std::size_t CacheTasas::total_peticiones_http() const noexcept {
 
 std::size_t CacheTasas::total_fechas_respaldo() const noexcept {
     return fechas_con_respaldo_;
+}
+
+std::size_t CacheTasas::total_consultas_diarias() const noexcept {
+    return consultas_diarias_;
+}
+
+std::size_t CacheTasas::total_dias_sin_dato() const noexcept {
+    return dias_sin_dato_;
+}
+
+std::size_t CacheTasas::total_consultas_diarias_fallidas() const noexcept {
+    return consultas_diarias_fallidas_;
 }

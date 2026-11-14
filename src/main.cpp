@@ -6,6 +6,7 @@
 #include "tasa_cambio.h"
 
 #include <curl/curl.h>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <omp.h>
@@ -73,11 +74,18 @@ int main(int argc, char** argv) {
             const std::vector<int> hilos_prueba = { 1, 2, 4, 8 };
             double tiempo_base_1_hilo = 0.0;
 
+            std::ofstream csv_bench("results/benchmark_tiempos.csv", std::ios::out | std::ios::trunc);
+            if (csv_bench.is_open()) {
+                csv_bench << "hilos,tiempo_lectura_conversion_s,tiempo_escritura_s,tiempo_total_s,speedup,eficiencia_pct\n";
+                csv_bench << std::fixed << std::setprecision(4);
+            }
+
             std::cout << std::fixed << std::setprecision(4);
             std::cout << "=== Benchmark OpenMP (1, 2, 4 y 8 hilos) ===\n"
-                      << "Tiempo autenticacion + 3 consultas de rango API: " << t_api << " s\n\n"
-                      << "Hilos | T. Procesamiento (s) | T. Total (s) | Speedup S(p) | Eficiencia E(p)\n"
-                      << "------+----------------------+--------------+--------------+----------------\n";
+                      << "Tiempo autenticacion + consultas a la API: " << t_api << " s\n\n"
+                      << "Hilos | T. Lectura+Conv (s) | T. Escritura (s) | T. Total (s) | Speedup S(p) | Eficiencia E(p)\n"
+                      << "------+---------------------+------------------+--------------+--------------+----------------\n"
+                      << std::flush;
 
             for (int p : hilos_prueba) {
                 omp_set_num_threads(p);
@@ -99,10 +107,20 @@ int main(int argc, char** argv) {
                 const double eficiencia = speedup / static_cast<double>(p);
 
                 std::cout << std::setw(5) << p << " | "
-                          << std::setw(20) << t_proc << " | "
+                          << std::setw(19) << t_proc << " | "
+                          << std::setw(16) << t_esc << " | "
                           << std::setw(12) << t_corrida << " | "
                           << std::setw(12) << speedup << " | "
-                          << std::setw(14) << (eficiencia * 100.0) << "%\n";
+                          << std::setw(14) << (eficiencia * 100.0) << "%\n"
+                          << std::flush;
+
+                if (csv_bench.is_open()) {
+                    csv_bench << p << "," << t_proc << "," << t_esc << ","
+                              << t_corrida << "," << speedup << ","
+                              << std::setprecision(2) << (eficiencia * 100.0)
+                              << std::setprecision(4) << "\n"
+                              << std::flush;
+                }
             }
 
             curl_global_cleanup();
@@ -125,14 +143,17 @@ int main(int argc, char** argv) {
 
         std::cout << std::fixed << std::setprecision(4);
         std::cout << "=== Resumen de Ejecucion (Hilos OpenMP: " << args.num_hilos << ") ===\n"
-                  << "Peticiones HTTP de rango API:   " << cache_tasas.total_peticiones_http() << "\n"
+                  << "Peticiones HTTP a la API:       " << cache_tasas.total_peticiones_http()
+                  << " (dia por dia: " << cache_tasas.total_consultas_diarias()
+                  << ", sin dato 404: " << cache_tasas.total_dias_sin_dato()
+                  << ", fallidas: " << cache_tasas.total_consultas_diarias_fallidas() << ")\n"
                   << "Tasas en cache (2023-2025):     " << cache_tasas.total_tasas()
                   << " (respaldo fines de semana/feriados: " << cache_tasas.total_fechas_respaldo() << ")\n"
                   << "Ventas validas (2023-2025):     " << procesador.total_ventas_validas() << "\n"
                   << "Ventas fuera de rango:          " << procesador.total_fuera_de_rango() << "\n"
                   << "Registros invalidos/duplicados: " << procesador.total_registros_invalidos() << "\n"
                   << "Clientes agrupados en salida:   " << procesador.total_clientes_agrupados() << "\n"
-                  << "Tiempo login + API (3 rangos):  " << t_api << " s\n"
+                  << "Tiempo login + API:             " << t_api << " s\n"
                   << "Tiempo lectura/conv. OpenMP:    " << t_procesamiento << " s\n"
                   << "Tiempo escritura CSV:           " << t_escritura << " s\n"
                   << "Tiempo TOTAL:                   " << t_total << " s\n";
