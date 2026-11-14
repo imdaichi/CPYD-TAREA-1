@@ -1,0 +1,5 @@
+hilos,tiempo_lectura_conversion_s,tiempo_escritura_s,tiempo_total_s,speedup,eficiencia_pct
+1,48.6210,0.1420,48.7630,1.0000,100.00
+2,25.4180,0.1410,25.5590,1.9079,95.39
+4,13.6840,0.1430,13.8270,3.5266,88.17
+8,7.8920,0.1420,8.0340,6.0696,75.87
