@@ -3,7 +3,7 @@
 Computación Paralela y Distribuida, UTEM. Profesor: Sebastián Salazar Molina.
 Enunciado: [`docs/enunciado/enunciado.pdf`](docs/enunciado/enunciado.pdf). Referencia de la API: [`docs/API.md`](docs/API.md). Resumen y plan: [`docs/PANORAMA.md`](docs/PANORAMA.md).
 
-Programa en C++17 con OpenMP que procesa archivos masivos de transacciones de ventas de Chile, Colombia y Ecuador sin cargar el archivo completo en memoria, filtra las ventas del `01/01/2023` al `31/12/2025`, consulta las tasas de cambio por rango a la API autenticada (3 peticiones en total, una por país), convierte cada monto a USD y genera el resumen ordenado por país e identificador de cliente.
+Programa en C++17 con OpenMP que procesa archivos masivos de transacciones de ventas de Chile, Colombia y Ecuador sin cargar el archivo completo en memoria, filtra las ventas del `01/01/2023` al `31/12/2025`, consulta las tasas de cambio por rango a la API autenticada (3 peticiones, una por país, con respaldo de consulta día por día en paralelo si la API falla), convierte cada monto a USD y genera el resumen ordenado por país e identificador de cliente.
 
 ## Integrantes y participación
 
@@ -113,6 +113,7 @@ El diseño separa el problema en etapas pensadas para archivos de gran volumen (
 1. **Consulta paralela de tasas por rango (3 peticiones HTTP en total):**
    - En lugar de consultar a la API por cada venta o por cada día individual (~3.288 peticiones), se utiliza el endpoint de rango `GET /v1/exchanges/{country}?start_date=2023-01-01&end_date=2025-12-31`.
    - Se lanzan **exactamente 3 peticiones** en paralelo mediante `#pragma omp parallel` y `#pragma omp for schedule(dynamic, 1)` (una para `chile`, una para `colombia` y una para `ecuador`), donde cada hilo posee su propia instancia `ClienteHttp` (`CURL*` independiente).
+   - **Respaldo día por día:** si la consulta por rango falla para un país (en las pruebas la API respondió HTTP `500` a las tres), se consultan sus 1.096 fechas con `GET /v1/exchanges/{country}/{date}` en paralelo: `#pragma omp parallel` con al menos 16 hilos (es espera de red, no cálculo), `schedule(dynamic, 4)`, un `ClienteHttp` por hilo, hasta 4 intentos por fecha con espera creciente y contadores con `reduction(+:...)`. Cada iteración escribe solo su propia posición de un vector de resultados, así que no hay condiciones de carrera. Medido: 3.288 consultas en ~109 s, sin fallos (951 fechas sin cotización, HTTP `404`).
    - Con las respuestas se construye una tabla de búsqueda indexada en tiempo constante $O(1)$ (`tabla_rapida_[3][1096]`) que cubre los 3 países y los 1.096 días del período `2023-01-01`..`2025-12-31`. Durante el procesamiento de ventas esta tabla es de **solo lectura**, eliminando cualquier bloqueo al consultar tasas.
 
 2. **Lectura paralela del archivo CSV por particiones de bytes (sin cargar el archivo completo en memoria):**
@@ -120,13 +121,15 @@ El diseño separa el problema en etapas pensadas para archivos de gran volumen (
    - Cada hilo OpenMP abre su propio descriptor `std::ifstream` con un buffer de E/S local de 1 MB. Si `id_hilo > 0`, el hilo se posiciona en `inicio_nominal - 1` y avanza hasta el primer salto de línea `\n`, garantizando que cada línea sea procesada por un único hilo sin cortes ni duplicaciones.
    - Cada hilo lee, valida, convierte a USD y acumula **línea por línea en streaming**, descartando inmediatamente la fila procesada. Así no se almacena un `std::vector<Venta>` en memoria y el consumo de RAM se mantiene acotado sin importar si el archivo pesa cientos de megabytes o 14 GB.
 
-3. **Detección paralela de boletas duplicadas con particionamiento de locks (256 shards):**
-   - Cada UUID de boleta se convierte al validarse en una estructura binaria compacta de 128 bits (`Uuid128`, 16 bytes en lugar de un `std::string` de 36 bytes en el heap).
-   - Para verificar unicidad global entre hilos sin un cuello de botella central, las boletas vistas se almacenan en un arreglo de **256 particiones (`shards`)**, cada una protegida por su propio candado `omp_lock_t` indexado por los bits bajos de `uuid.hi`.
+3. **Tablas hash compartidas y particionadas con un candado por partición (lock striping):**
+   - El archivo real tiene ~119 millones de boletas y ~25 millones de clientes. Con `std::unordered_set`, `std::map` y claves `std::string` (más un mapa local por hilo) el programa necesitaba decenas de GB y el sistema lo terminaba por falta de memoria.
+   - Los UUID de boleta y de cliente se convierten al validarse en `Uuid128` (16 bytes). Boletas y clientes se guardan en tablas hash de direccionamiento abierto con sondeo lineal (16 bytes por boleta y 32 bytes por cliente, crecen al 80 % de ocupación), repartidas en **1.024 particiones**. La partición se elige con los bits altos de un hash *splitmix64* del UUID y cada una tiene su propio candado `omp_lock_t`.
+   - Todos los hilos comparten una sola tabla (no hay copias por hilo), y con 1.024 particiones dos hilos casi nunca compiten por el mismo candado.
 
-4. **Acumulación por hilo y reducción final sin condiciones de carrera:**
-   - Cada hilo acumula los montos convertidos ($\text{monto\_USD} = \text{monto\_local} / \text{rate}$) en un mapa privado `std::map<std::pair<int, std::string>, double> acumulador_local`.
-   - Al finalizar la lectura de su segmento, cada hilo fusiona su mapa local en el mapa global `totales_por_cliente_` dentro de una única sección `#pragma omp critical(mezcla_totales)`. Al ser `std::map` ordenado por clave `(pais, id_cliente)`, la salida queda automáticamente ordenada para su escritura a CSV.
+4. **Acumulación sin condiciones de carrera y con resultado determinista:**
+   - Cada venta se convierte ($\text{monto\_USD} = \text{monto\_local} / \text{rate}$), se redondea a micro-dólares (entero `int64`, USD × 1.000.000) y se suma al total de su cliente dentro del candado de su partición.
+   - Como la suma de enteros no depende del orden, `resumen_ventas_usd.csv` sale idéntico con 1, 2, 4 u 8 hilos (con `double` los últimos decimales podían variar según el orden en que sumaban los hilos).
+   - Al terminar, los totales se vuelcan a un vector, se ordenan por `(pais, id_cliente)` y se escriben en centavos redondeados a 2 decimales.
 
 ## Política de errores
 
@@ -168,4 +171,5 @@ Las métricas evaluadas son:
 
 1. El archivo de entrada utiliza codificación ASCII/UTF-8 con saltos de línea `\n` o `\r\n`, separador de columnas `,` (o `;`) y punto `.` como separador decimal.
 2. Si la primera línea del archivo no comienza con un dígito ni con el signo `-`, se interpreta como encabezado CSV y se omite automáticamente.
-3. Los montos acumulados en USD se almacenan en `double` durante la reducción y se formatean a 2 decimales fijos (`std::fixed` + `std::setprecision(2)`) al escribir `resumen_ventas_usd.csv`.
+3. Cada monto convertido a USD se redondea a micro-dólares (6 decimales) antes de sumarse; el total se escribe redondeado a 2 decimales. El error de redondeo es menor a una millonésima de dólar por venta.
+4. El `id_cliente` se escribe en minúsculas en la salida (los UUID del archivo ya vienen en minúsculas).

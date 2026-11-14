@@ -5,9 +5,17 @@
 #include "venta.h"
 
 #include <cstddef>
-#include <map>
+#include <cstdint>
 #include <string>
-#include <utility>
+#include <vector>
+
+// Total acumulado de un cliente en micro-dolares (USD x 1.000.000), entero para que la suma
+// no dependa del orden en que los hilos la realizan.
+struct TotalCliente {
+    int pais{ 0 };
+    Uuid128 id_cliente{};
+    std::int64_t micro_usd{ 0 };
+};
 
 class ProcesadorVentas {
 public:
@@ -31,7 +39,7 @@ public:
     [[nodiscard]] std::size_t total_clientes_agrupados() const noexcept;
 
 private:
-    std::map<std::pair<int, std::string>, double> totales_por_cliente_;
+    std::vector<TotalCliente> totales_por_cliente_; // ordenado por (pais, id_cliente)
     std::size_t ventas_validas_count_{ 0 };
     std::size_t registros_invalidos_{ 0 };
     std::size_t registros_fuera_rango_{ 0 };

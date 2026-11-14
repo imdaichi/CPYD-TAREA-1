@@ -26,6 +26,7 @@ public:
 
     [[nodiscard]] int obtener_pais() const noexcept;
     [[nodiscard]] const std::string& obtener_id_cliente() const noexcept;
+    [[nodiscard]] Uuid128 obtener_uuid_cliente() const noexcept;
     [[nodiscard]] const std::string& obtener_id_boleta() const noexcept;
     [[nodiscard]] Uuid128 obtener_uuid_boleta() const noexcept;
     [[nodiscard]] const std::string& obtener_fecha() const noexcept;
@@ -43,6 +44,7 @@ private:
     int pais_{ 0 };
     std::string id_cliente_;
     std::string id_boleta_;
+    Uuid128 uuid_cliente_{};
     Uuid128 uuid_boleta_{};
     std::string fecha_;
     double monto_local_{ 0.0 };

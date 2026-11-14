@@ -47,7 +47,7 @@ int leerDosDigitos(const std::string& s, std::size_t pos) noexcept {
 
 Venta::Venta(int pais, std::string id_cliente, std::string id_boleta, std::string fecha, double monto_local) {
     validar_pais(pais);
-    (void)parsear_y_validar_uuid(id_cliente, "id_cliente");
+    uuid_cliente_ = parsear_y_validar_uuid(id_cliente, "id_cliente");
     uuid_boleta_ = parsear_y_validar_uuid(id_boleta, "id_boleta");
     fecha_ = extraer_y_validar_fecha(fecha);
     validar_monto(monto_local);
@@ -64,6 +64,10 @@ int Venta::obtener_pais() const noexcept {
 
 const std::string& Venta::obtener_id_cliente() const noexcept {
     return id_cliente_;
+}
+
+Uuid128 Venta::obtener_uuid_cliente() const noexcept {
+    return uuid_cliente_;
 }
 
 const std::string& Venta::obtener_id_boleta() const noexcept {
