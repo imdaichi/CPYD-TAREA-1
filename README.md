@@ -11,8 +11,8 @@ convierte cada monto a USD con la tasa diaria de la API del curso y escribe el t
 | Nombre | GitHub | Aporte |
 |---|---|---|
 | Renato Moyano | `imdaichi` | _por completar_ |
-| _por completar_ | | |
-| _por completar_ | | |
+| Benjamín Quilodrán |"bquilodran" | |
+| Cristobal Huentecura |"Wente" | |
 
 ## Requisitos
 
