@@ -75,7 +75,7 @@ int main(int argc, char** argv) {
 
             std::cout << std::fixed << std::setprecision(4);
             std::cout << "=== Benchmark OpenMP (1, 2, 4 y 8 hilos) ===\n"
-                      << "Tiempo autenticacion + 3 consultas de rango API: " << t_api << " s\n\n"
+                      << "Tiempo autenticacion + consultas a la API: " << t_api << " s\n\n"
                       << "Hilos | T. Procesamiento (s) | T. Total (s) | Speedup S(p) | Eficiencia E(p)\n"
                       << "------+----------------------+--------------+--------------+----------------\n";
 
@@ -125,14 +125,17 @@ int main(int argc, char** argv) {
 
         std::cout << std::fixed << std::setprecision(4);
         std::cout << "=== Resumen de Ejecucion (Hilos OpenMP: " << args.num_hilos << ") ===\n"
-                  << "Peticiones HTTP de rango API:   " << cache_tasas.total_peticiones_http() << "\n"
+                  << "Peticiones HTTP a la API:       " << cache_tasas.total_peticiones_http()
+                  << " (dia por dia: " << cache_tasas.total_consultas_diarias()
+                  << ", sin dato 404: " << cache_tasas.total_dias_sin_dato()
+                  << ", fallidas: " << cache_tasas.total_consultas_diarias_fallidas() << ")\n"
                   << "Tasas en cache (2023-2025):     " << cache_tasas.total_tasas()
                   << " (respaldo fines de semana/feriados: " << cache_tasas.total_fechas_respaldo() << ")\n"
                   << "Ventas validas (2023-2025):     " << procesador.total_ventas_validas() << "\n"
                   << "Ventas fuera de rango:          " << procesador.total_fuera_de_rango() << "\n"
                   << "Registros invalidos/duplicados: " << procesador.total_registros_invalidos() << "\n"
                   << "Clientes agrupados en salida:   " << procesador.total_clientes_agrupados() << "\n"
-                  << "Tiempo login + API (3 rangos):  " << t_api << " s\n"
+                  << "Tiempo login + API:             " << t_api << " s\n"
                   << "Tiempo lectura/conv. OpenMP:    " << t_procesamiento << " s\n"
                   << "Tiempo escritura CSV:           " << t_escritura << " s\n"
                   << "Tiempo TOTAL:                   " << t_total << " s\n";
