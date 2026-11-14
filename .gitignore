@@ -2,13 +2,28 @@
 .env
 *.token
 
-# Compilación
+# Compilación (se generan con make)
 /build/
 /programa
 *.o
+*.d
 
-# Datos y salidas grandes
-data/*.csv
+# Datos de entrada: van en data/, que no se sube (ventas.csv pesa ~14 GB)
+data/
+*.csv
+*.zip
+*.gz
+*.xz
+*.7z
+*.rar
+*.tar
+*.crdownload
+*.part
+# ...salvo los CSV chicos de prueba y los resultados del benchmark
+!tests/*.csv
+!results/*.csv
+
+# Salidas del programa
 resumen_ventas_usd.csv
 errores.csv
 results/*.log

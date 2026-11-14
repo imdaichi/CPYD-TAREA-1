@@ -1,0 +1,10 @@
+Language: Cpp
+BasedOnStyle: WebKit
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+BreakBeforeBraces: Attach
+AccessModifierOffset: -4
+AllowShortBlocksOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Empty
+
